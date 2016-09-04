@@ -207,7 +207,8 @@ func prepareHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func loadSession(w http.ResponseWriter, r *http.Request) (session *sessions.Session, err error) {
-	store := sessions.NewMemcacheStore(memcachedServer, []byte(sessionSecret))
+	//store := sessions.NewMemcacheStore(memcachedServer, []byte(sessionSecret))
+	store := sessions.NewCookieStore([]byte("something-very-secret"))
 	return store.Get(r, sessionName)
 }
 
@@ -243,6 +244,7 @@ func antiCSRF(w http.ResponseWriter, r *http.Request, session *sessions.Session)
 
 func serverError(w http.ResponseWriter, err error) {
 	log.Printf("error: %s", err)
+	log.Printf("error: %s", err.Error())
 	code := http.StatusInternalServerError
 	http.Error(w, http.StatusText(code), code)
 }
@@ -276,7 +278,7 @@ func topHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	rows.Close()
 
-	rows, err = dbConn.Query("SELECT id, user, content, is_private, create_at, updated_at, username FROM memos WHERE is_private=0 ORDER BY created_at DESC, id DESC LIMIT ?", memosPerPage)
+	rows, err = dbConn.Query("SELECT id, user, content, is_private, created_at, updated_at, username FROM memos WHERE is_private=0 ORDER BY created_at DESC, id DESC LIMIT ?", memosPerPage)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -329,7 +331,7 @@ func recentHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	rows.Close()
 
-	rows, err = dbConn.Query("SELECT * FROM memos WHERE is_private=0 ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?", memosPerPage, memosPerPage*page)
+	rows, err = dbConn.Query("SELECT id, user, content, is_private, created_at, updated_at, username FROM memos WHERE is_private=0 ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?", memosPerPage, memosPerPage*page)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -601,8 +603,8 @@ func memoPostHandler(w http.ResponseWriter, r *http.Request) {
 		isPrivate = 0
 	}
 	result, err := dbConn.Exec(
-		"INSERT INTO memos (user, content, is_private, created_at) VALUES (?, ?, ?, now())",
-		user.Id, r.FormValue("content"), isPrivate,
+		"INSERT INTO memos (user, content, is_private, created_at, username) VALUES (?, ?, ?, now(), ?)",
+		user.Id, r.FormValue("content"), isPrivate, user.Username,
 	)
 	if err != nil {
 		serverError(w, err)
