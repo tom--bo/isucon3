@@ -9,6 +9,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/securecookie"
+	"github.com/russross/blackfriday"
 	"html/template"
 	"io/ioutil"
 	"log"
@@ -17,7 +18,6 @@ import (
 	_ "net/http/pprof"
 	"net/url"
 	"os"
-	"os/exec"
 	"os/signal"
 	"runtime"
 	"strconv"
@@ -96,7 +96,7 @@ var (
 			return session.Values["token"]
 		},
 		"gen_markdown": func(s string) template.HTML {
-			f, _ := ioutil.TempFile(tmpDir, "isucon")
+			/*f, _ := ioutil.TempFile(tmpDir, "isucon")
 			defer f.Close()
 			f.WriteString(s)
 			f.Sync()
@@ -108,8 +108,10 @@ var (
 			if err != nil {
 				log.Printf("can't exec markdown command: %v", err)
 				return ""
-			}
-			return template.HTML(out)
+			}*/
+			tmp := []byte(s)
+			output := blackfriday.MarkdownBasic(tmp)
+			return template.HTML(output)
 		},
 	}
 	tmpl = template.Must(template.New("tmpl").Funcs(fmap).ParseGlob("templates/*.html"))
