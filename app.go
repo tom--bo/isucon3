@@ -124,8 +124,10 @@ func main() {
 	config := loadConfig("../config/" + env + ".json")
 	db := config.Database
 	connectionString := fmt.Sprintf(
-		"%s:%s@tcp(%s:%d)/%s?charset=utf8",
-		db.Username, db.Password, db.Host, db.Port, db.Dbname,
+		//"%s:%s@tcp(%s:%d)/%s?charset=utf8",
+		"%s:%s@unix(/var/lib/mysql/mysql.sock)/%s?parseTime=true&loc=Local",
+		//db.Username, db.Password, db.Host, db.Port, db.Dbname,
+		db.Username, db.Password, db.Dbname,
 	)
 	log.Printf("db: %s", connectionString)
 
