@@ -88,7 +88,7 @@ var (
 			return baseUrl.String() + path
 		},
 		"first_line": func(s string) string {
-			sl := strings.Split(s, "\n")
+			sl := strings.SplitN(s, "\n", 2)
 			return sl[0]
 		},
 		"get_token": func(session *sessions.Session) interface{} {
