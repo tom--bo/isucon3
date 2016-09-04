@@ -89,6 +89,7 @@ var (
 		},
 		"first_line": func(s string) string {
 			sl := strings.SplitN(s, "\n", 2)
+			//sl := strings.Split(s, "\n")
 			return sl[0]
 		},
 		"get_token": func(session *sessions.Session) interface{} {
@@ -273,7 +274,7 @@ func topHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	rows.Close()
 
-	rows, err = dbConn.Query("SELECT * FROM memos WHERE is_private=0 ORDER BY created_at DESC, id DESC LIMIT ?", memosPerPage)
+	rows, err = dbConn.Query("SELECT id, user, content, is_private, create_at, updated_at, username FROM memos WHERE is_private=0 ORDER BY created_at DESC, id DESC LIMIT ?", memosPerPage)
 	if err != nil {
 		serverError(w, err)
 		return
