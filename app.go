@@ -12,14 +12,17 @@ import (
 	"html/template"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	_ "net/http/pprof"
 	"net/url"
 	"os"
 	"os/exec"
+	"os/signal"
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 const (
@@ -151,7 +154,27 @@ func main() {
 	r.HandleFunc("/recent/{page:[0-9]+}", recentHandler)
 	r.PathPrefix("/").Handler(http.FileServer(http.Dir("./public/")))
 	http.Handle("/", r)
-	log.Fatal(http.ListenAndServe(listenAddr, nil))
+	//log.Fatal(http.ListenAndServe(listenAddr, nil))
+	l, err := net.Listen("unix", "/tmp/go.sock")
+	if err != nil {
+		fmt.Printf("%s\n", err)
+		return
+
+	}
+	sigc := make(chan os.Signal, 1)
+	signal.Notify(sigc, os.Interrupt, os.Kill, syscall.SIGTERM)
+	go func(c chan os.Signal) {
+		sig := <-c
+		log.Printf("Caught signal %s: shutting down.", sig)
+		l.Close()
+		os.Exit(0)
+
+	}(sigc)
+	err = http.Serve(l, r)
+	if err != nil {
+		panic(err)
+
+	}
 }
 
 func loadConfig(filename string) *Config {
