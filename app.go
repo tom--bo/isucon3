@@ -251,7 +251,7 @@ func topHandler(w http.ResponseWriter, r *http.Request) {
 	user := getUser(w, r, dbConn, session)
 
 	var totalCount int
-	rows, err := dbConn.Query("SELECT count(*) AS c FROM memos WHERE is_private=0")
+	rows, err := dbConn.Query("SELECT count(1) AS c FROM memos WHERE is_private=0")
 	if err != nil {
 		serverError(w, err)
 		return
@@ -261,7 +261,7 @@ func topHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	rows.Close()
 
-	rows, err = dbConn.Query("SELECT id, user, content, is_private, created_at, updated_at, username FROM memos WHERE is_private=0 ORDER BY created_at DESC, id DESC LIMIT ?", memosPerPage)
+	rows, err = dbConn.Query("SELECT id, title, is_private, created_at, updated_at, username FROM memos WHERE is_private=0 ORDER BY created_at DESC, id DESC LIMIT ?", memosPerPage)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -269,8 +269,7 @@ func topHandler(w http.ResponseWriter, r *http.Request) {
 	memos := make(Memos, 0)
 	for rows.Next() {
 		memo := Memo{}
-		rows.Scan(&memo.Id, &memo.User, &memo.Content, &memo.IsPrivate, &memo.CreatedAt, &memo.UpdatedAt, &memo.Username)
-		memo.Title = strings.SplitN(memo.Content, "\n", 2)[0]
+		rows.Scan(&memo.Id, &memo.Title, &memo.IsPrivate, &memo.CreatedAt, &memo.UpdatedAt, &memo.Username)
 		memos = append(memos, &memo)
 	}
 	rows.Close()
@@ -311,7 +310,7 @@ func recentHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	page, _ := strconv.Atoi(vars["page"])
 
-	rows, err := dbConn.Query("SELECT count(*) AS c FROM memos WHERE is_private=0")
+	rows, err := dbConn.Query("SELECT count(id) AS c FROM memos WHERE is_private=0")
 	if err != nil {
 		serverError(w, err)
 		return
@@ -322,7 +321,7 @@ func recentHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	rows.Close()
 
-	rows, err = dbConn.Query("SELECT id, user, content, is_private, created_at, updated_at, username FROM memos WHERE is_private=0 ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?", memosPerPage, memosPerPage*page)
+	rows, err = dbConn.Query("SELECT id, title, is_private, created_at, updated_at, username FROM memos WHERE is_private=0 ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?", memosPerPage, memosPerPage*page)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -330,7 +329,7 @@ func recentHandler(w http.ResponseWriter, r *http.Request) {
 	memos := make(Memos, 0)
 	for rows.Next() {
 		memo := Memo{}
-		rows.Scan(&memo.Id, &memo.User, &memo.Content, &memo.IsPrivate, &memo.CreatedAt, &memo.UpdatedAt, &memo.Username)
+		rows.Scan(&memo.Id, &memo.Title, &memo.IsPrivate, &memo.CreatedAt, &memo.UpdatedAt, &memo.Username)
 		memos = append(memos, &memo)
 	}
 	if len(memos) == 0 {
@@ -536,7 +535,7 @@ func memoHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		cond = "AND is_private=0"
 	}
-	rows, err = dbConn.Query("SELECT id, content, is_private, created_at, updated_at FROM memos WHERE user=? "+cond+" ORDER BY created_at", memo.User)
+	rows, err = dbConn.Query("SELECT id FROM memos WHERE user=? "+cond+" ORDER BY created_at", memo.User)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -544,7 +543,7 @@ func memoHandler(w http.ResponseWriter, r *http.Request) {
 	memos := make(Memos, 0)
 	for rows.Next() {
 		m := Memo{}
-		rows.Scan(&m.Id, &m.Content, &m.IsPrivate, &m.CreatedAt, &m.UpdatedAt)
+		rows.Scan(&m.Id)
 		memos = append(memos, &m)
 	}
 	rows.Close()
@@ -601,8 +600,8 @@ func memoPostHandler(w http.ResponseWriter, r *http.Request) {
 		isPrivate = 0
 	}
 	result, err := dbConn.Exec(
-		"INSERT INTO memos (user, content, is_private, created_at, username) VALUES (?, ?, ?, now(), ?)",
-		user.Id, r.FormValue("content"), isPrivate, user.Username,
+		"INSERT INTO memos (user, title, content, is_private, created_at, username) VALUES (?, ?, ?, ?, now(), ?)",
+		user.Id, strings.SplitN(r.FormValue("content"), "\n", 2)[0], r.FormValue("content"), isPrivate, user.Username,
 	)
 	if err != nil {
 		serverError(w, err)
