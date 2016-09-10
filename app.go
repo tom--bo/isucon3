@@ -2,6 +2,7 @@ package main
 
 import (
 	"./sessions"
+	"bytes"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
@@ -23,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 const (
@@ -32,7 +34,7 @@ const (
 	sessionName        = "isucon_session"
 	tmpDir             = "/tmp/"
 	markdownCommand    = "../bin/markdown"
-	dbConnPoolSize     = 100
+	dbConnPoolSize     = 200
 	memcachedServer    = "localhost:11211"
 	sessionSecret      = "kH<{11qpic*gf0e21YK7YtwyUvE9l<1r>yX8R-Op"
 )
@@ -59,10 +61,12 @@ type Memo struct {
 	Id        int
 	User      int
 	Content   string
+	Title     string
 	IsPrivate int
 	CreatedAt string
 	UpdatedAt string
 	Username  string
+	MarkDown  template.HTML
 }
 
 type Memos []*Memo
@@ -77,44 +81,23 @@ type View struct {
 	Total     int
 	Older     *Memo
 	Newer     *Memo
-	Session   *sessions.Session
+	BaseUrl   string
+	Token     interface{}
+}
+
+func genMarkDown(s string) template.HTML {
+	tmp := []byte(s)
+	output := blackfriday.MarkdownBasic(tmp)
+	return template.HTML(output)
 }
 
 var (
-	dbConnPool chan *sql.DB
-	baseUrl    *url.URL
-	fmap       = template.FuncMap{
-		"url_for": func(path string) string {
-			return baseUrl.String() + path
-		},
-		"first_line": func(s string) string {
-			sl := strings.SplitN(s, "\n", 2)
-			//sl := strings.Split(s, "\n")
-			return sl[0]
-		},
-		"get_token": func(session *sessions.Session) interface{} {
-			return session.Values["token"]
-		},
-		"gen_markdown": func(s string) template.HTML {
-			/*f, _ := ioutil.TempFile(tmpDir, "isucon")
-			defer f.Close()
-			f.WriteString(s)
-			f.Sync()
-			finfo, _ := f.Stat()
-			path := tmpDir + finfo.Name()
-			defer os.Remove(path)
-			cmd := exec.Command(markdownCommand, path)
-			out, err := cmd.Output()
-			if err != nil {
-				log.Printf("can't exec markdown command: %v", err)
-				return ""
-			}*/
-			tmp := []byte(s)
-			output := blackfriday.MarkdownBasic(tmp)
-			return template.HTML(output)
-		},
-	}
-	tmpl = template.Must(template.New("tmpl").Funcs(fmap).ParseGlob("templates/*.html"))
+	dbConnPool   chan *sql.DB
+	baseUrl      *url.URL
+	tmpl         = template.Must(template.New("tmpl").ParseGlob("templates/*.html"))
+	topHtmlCache []byte
+	//lastAccessTime time.Time = time.Now() - 1*time.Second
+	lastAccessTime = time.Now().Add(-1 * time.Second)
 )
 
 func main() {
@@ -287,6 +270,7 @@ func topHandler(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		memo := Memo{}
 		rows.Scan(&memo.Id, &memo.User, &memo.Content, &memo.IsPrivate, &memo.CreatedAt, &memo.UpdatedAt, &memo.Username)
+		memo.Title = strings.SplitN(memo.Content, "\n", 2)[0]
 		memos = append(memos, &memo)
 	}
 	rows.Close()
@@ -298,11 +282,18 @@ func topHandler(w http.ResponseWriter, r *http.Request) {
 		PageEnd:   memosPerPage,
 		Memos:     &memos,
 		User:      user,
-		Session:   session,
+		Token:     session.Values["token"],
+		BaseUrl:   baseUrl.String(),
 	}
-	if err = tmpl.ExecuteTemplate(w, "index", v); err != nil {
-		serverError(w, err)
+	if time.Now().Sub(lastAccessTime) > 900*time.Millisecond {
+		buf := bytes.NewBufferString("")
+		if err = tmpl.ExecuteTemplate(buf, "index", v); err != nil {
+			serverError(w, err)
+		}
+		lastAccessTime = time.Now()
+		topHtmlCache = buf.Bytes()
 	}
+	w.Write(topHtmlCache)
 }
 
 func recentHandler(w http.ResponseWriter, r *http.Request) {
@@ -354,7 +345,8 @@ func recentHandler(w http.ResponseWriter, r *http.Request) {
 		PageEnd:   memosPerPage * (page + 1),
 		Memos:     &memos,
 		User:      user,
-		Session:   session,
+		Token:     session.Values["token"],
+		BaseUrl:   baseUrl.String(),
 	}
 	if err = tmpl.ExecuteTemplate(w, "index", v); err != nil {
 		serverError(w, err)
@@ -376,7 +368,8 @@ func signinHandler(w http.ResponseWriter, r *http.Request) {
 
 	v := &View{
 		User:    user,
-		Session: session,
+		Token:   session.Values["token"],
+		BaseUrl: baseUrl.String(),
 	}
 	if err := tmpl.ExecuteTemplate(w, "signin", v); err != nil {
 		serverError(w, err)
@@ -428,7 +421,8 @@ func signinPostHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	v := &View{
-		Session: session,
+		Token:   session.Values["token"],
+		BaseUrl: baseUrl.String(),
 	}
 	if err := tmpl.ExecuteTemplate(w, "signin", v); err != nil {
 		serverError(w, err)
@@ -477,12 +471,14 @@ func mypageHandler(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		memo := Memo{}
 		rows.Scan(&memo.Id, &memo.Content, &memo.IsPrivate, &memo.CreatedAt, &memo.UpdatedAt)
+		memo.Title = strings.SplitN(memo.Content, "\n", 2)[0]
 		memos = append(memos, &memo)
 	}
 	v := &View{
 		Memos:   &memos,
 		User:    user,
-		Session: session,
+		Token:   session.Values["token"],
+		BaseUrl: baseUrl.String(),
 	}
 	if err = tmpl.ExecuteTemplate(w, "mypage", v); err != nil {
 		serverError(w, err)
@@ -512,6 +508,7 @@ func memoHandler(w http.ResponseWriter, r *http.Request) {
 	memo := &Memo{}
 	if rows.Next() {
 		rows.Scan(&memo.Id, &memo.User, &memo.Content, &memo.IsPrivate, &memo.CreatedAt, &memo.UpdatedAt)
+		memo.MarkDown = genMarkDown(memo.Content)
 		rows.Close()
 	} else {
 		notFound(w)
@@ -569,7 +566,8 @@ func memoHandler(w http.ResponseWriter, r *http.Request) {
 		Memo:    memo,
 		Older:   older,
 		Newer:   newer,
-		Session: session,
+		Token:   session.Values["token"],
+		BaseUrl: baseUrl.String(),
 	}
 	if err = tmpl.ExecuteTemplate(w, "memo", v); err != nil {
 		serverError(w, err)
